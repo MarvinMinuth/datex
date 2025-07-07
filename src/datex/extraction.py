@@ -1,7 +1,7 @@
 from ollama import chat
 from openai import OpenAI
 from datex.models.schemas import ModelConfig 
-from datex.strategies.schemas import InputData, InputType
+from datex.conversion.schemas import InputData, InputType
 
 # TODO: correctly convert text input_data
 
