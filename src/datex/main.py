@@ -24,7 +24,7 @@ def prepare_dataset(path: Path) -> tuple[list[Path], dict | None]:
     expected_output = None
     for file in path.iterdir():
         if file.suffix == ".pdf":
-            pdf_paths.append(Path(file))
+            pdf_paths.append(file)
         elif file.name == "expected_output.json":
             with open(file, mode="r", encoding="utf-8") as f:
                 expected_output = json.load(f)
