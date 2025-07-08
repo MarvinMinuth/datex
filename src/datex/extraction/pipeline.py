@@ -2,16 +2,16 @@ from pathlib import Path
 from datex.extraction.schemas import ExtractionConfig, Provider
 import json
 from datex.extraction.strategies import (
-    extract_with_ollama,
-    extract_with_openai,
     ExtractionStrategy,
+    OllamaStrategy,
+    OpenAIStrategy,
 )
 import asyncio
 
 
-EXTRACTION_STRATEGIES: dict[Provider, ExtractionStrategy] = {
-    Provider.OLLAMA: extract_with_ollama,
-    Provider.OPENAI: extract_with_openai,
+EXTRACTION_STRATEGIES: dict[Provider, type[ExtractionStrategy]] = {
+    Provider.OLLAMA: OllamaStrategy,
+    Provider.OPENAI: OpenAIStrategy,
 }
 
 
@@ -24,18 +24,18 @@ async def run_extractions(
     with open(output_schema_path, "r") as file:
         output_schema = json.load(file)
 
-    try:
-        extract_func = EXTRACTION_STRATEGIES[config.provider]
-    except KeyError:
-        raise ValueError(f"Provider {config.provider} not supported.")
-
     params = {
         "config": config,
         "output_schema": output_schema,
     }
 
+    try:
+        extractor = EXTRACTION_STRATEGIES[config.provider](**params)
+    except KeyError:
+        raise ValueError(f"Provider {config.provider} not supported.")
+
     extraction_tasks: dict[str, asyncio.Task] = {
-        file: asyncio.create_task(extract_func(input_data=input_data, **params))
+        file: asyncio.create_task(extractor(input_data=input_data))
         for file, input_data in conversion_result.items()
     }
 
