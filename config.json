@@ -4,6 +4,5 @@
 	"temperature": 0.1,
 	"top_p": 0.1,
 	"system_prompt": "The Assistant is Datex, an AI assistant to extract data from documents.",
-	"user_prompt": "Extract the information from this data sheet. If a value is not present, provide null. Dates should be in the format YYYY-MM.",
-	"dataset_path": "./data"
+	"user_prompt": "Extract the information from this data sheet. If a value is not present, provide null. Dates should be in the format YYYY-MM."
 }
