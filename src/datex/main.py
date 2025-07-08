@@ -7,9 +7,7 @@ from datex.models.schemas import ModelConfig, Provider
 import os
 from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
-
-
-# TODO: add support for directories
+import asyncio
 
 # TODO: add expected output
 
@@ -17,28 +15,31 @@ import concurrent.futures
 
 load_dotenv()
 
-def load_schema(
-    path: Path,
-): 
-    with path.open() as f:
-        schema = f.read()
-    return json.loads(schema)
+async def extract():
+    with open("./config.json", "r") as file:
+        config_file = json.load(file)
 
-
-def extract():
-    config = ModelConfig(
-        provider=Provider.OPENAI,
-        model_name="gpt-4.1-mini",
-        temperature=0.1,
-        top_p=0.1,
-        api_key=os.getenv("OPENAI_API_KEY") # type: ignore
+    api_key = (
+        config_file.get("api_key")
+        or os.getenv("OPENAI_API_KEY")
+        or ""
     )
 
-    system_prompt = "The Assistant is Datex, an AI assistant to extract data from documents."
-    output_schema = load_schema(Path("./output_schema.json"))
-    user_prompt = "Extract the information from this data sheet. If a value is not present, provide null. Dates should be in the format YYYY-MM."
+    config = ModelConfig(
+        provider=config_file["provider"],
+        model_name=config_file["model_name"],
+        temperature=config_file["temperature"],
+        top_p=config_file["top_p"],
+        api_key=api_key
+    )
 
-    dataset_path = Path("./data")
+    system_prompt = config_file.get("system_prompt", "The Assistant is Datex, an AI assistant to extract data from documents.")
+    user_prompt = config_file.get(
+            "user_prompt", 
+            "Extract the information from this data sheet. If a value is not present, provide null. Dates should be in the format YYYY-MM."
+    )
+
+    dataset_path = Path(config_file["dataset_path"])
     pdf_paths = []
     for file in dataset_path.iterdir():
         if file.suffix == ".pdf":
@@ -55,9 +56,11 @@ def extract():
                 print(f"{converted_file} caused an exception: {exc}")
 
     print("Extracting...")
-    extraction_result = {}
-
+    with open("./output_schema.json", "r") as file:
+        output_schema = json.load(file)
+ 
     extract_func = None
+
     if config.provider == Provider.OLLAMA:
         extract_func = extract_with_ollama
     else:
@@ -70,19 +73,20 @@ def extract():
             "output_schema": output_schema
             }
 
+    assert extract_func is not None
+    extraction_tasks: dict[str, asyncio.Task] = {
+        file: asyncio.create_task(extract_func(input_data=input_data, **params))
+        for file, input_data in conversion_result.items()
+    }
 
-    with ThreadPoolExecutor() as executor:
-        extraction_tasks = {executor.submit(extract_func, input_data=input_data, **params): file for file, input_data in conversion_result.items()}
-        for future in concurrent.futures.as_completed(extraction_tasks):
-            extracted_file = extraction_tasks[future]
-            try:
-                extraction_result[extracted_file] = future.result()
-            except Exception as exc:
-                print(f"{extracted_file} caused an exception: {exc}")
-        
+    await asyncio.gather(*extraction_tasks.values())
+    extraction_results = {
+        file: task.result()
+        for file, task in extraction_tasks.items()
+    }
 
-    return extraction_result
-
-
+    print(extraction_results)
+    return(extraction_results)
+    
 if __name__ == "__main__":
-    print(extract())
+    asyncio.run(extract())
