@@ -35,7 +35,7 @@ async def run_pipeline(
 ):
     config = load_config(path=config_path)
 
-    with open(expected_result_path, "r") as file:
+    with open(expected_result_path, mode="r", encoding="utf-8") as file:
         expected_result = json.load(file)
 
     pdf_paths = prepare_dataset(path=dataset_path)
