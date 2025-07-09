@@ -12,6 +12,7 @@ dependencies = [
     "openai>=1.93.0",
     "pdf2image>=1.17.0",
     "python-dotenv>=1.1.1",
+    "streamlit>=1.46.1",
 ]
 
 [project.scripts]
