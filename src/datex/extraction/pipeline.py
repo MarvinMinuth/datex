@@ -47,8 +47,9 @@ async def run_extractions(
             result = task.result()
             extraction_results[file] = json.loads(result)
         except json.JSONDecodeError as e:
-            print(f"Error decoding JSON for {file}: {e}")
-            extraction_results[file] = {"error": "Invalid JSON response"}
+            error_message = f"Error decoding JSON for {file}: {e}"
+            print(error_message)
+            extraction_results[file] = {"error": error_message}
         except Exception as e:
             print(f"An error occurred during extraction for {file}: {e}")
             extraction_results[file] = {"error": str(e)}
