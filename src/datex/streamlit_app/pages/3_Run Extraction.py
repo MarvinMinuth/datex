@@ -2,11 +2,13 @@ import streamlit as st
 from pathlib import Path
 import json
 import asyncio
+import shutil
+from datetime import datetime
 from datex.extraction import run_extractions
 from datex.extraction.schemas import ExtractionConfig
 from datex.conversion import run_conversions
 
-# --- Helper functions from main.py ---
+# --- Helper functions ---
 
 
 def load_config(path: Path) -> ExtractionConfig:
@@ -41,40 +43,146 @@ async def run_extraction_pipeline(
     return extraction_results
 
 
-def display_results(extraction_results, expected_results):
+def get_schema_fields(output_schema_path: Path) -> dict:
+    """Loads the output schema and returns its properties."""
+    if not output_schema_path.exists():
+        return {}
+    with open(output_schema_path, "r", encoding="utf-8") as f:
+        schema = json.load(f)
+    return schema.get("properties", {})
+
+
+def display_comparison_table(extracted_data, expected_data, schema_fields):
+    """Displays a side-by-side comparison table for a single file."""
+    st.markdown(
+        """
+    <style>
+    .stTable > table {
+        table-layout: auto;
+    }
+    .stTable th, .stTable td {
+        vertical-align: top;
+        border: 1px solid #444;
+        padding: 8px;
+    }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    header_cols = st.columns([1, 2, 2])
+    header_cols[0].markdown("**Field**")
+    header_cols[1].markdown("**Extracted Value**")
+    header_cols[2].markdown("**Expected Value**")
+    st.markdown("---")
+
+    for field, props in schema_fields.items():
+        row_cols = st.columns([1, 2, 2])
+        row_cols[0].markdown(f"**{field}**")
+
+        extracted_value = extracted_data.get(field)
+        expected_value = expected_data.get(field)
+
+        # Handle list comparisons
+        if props.get("type") == "array":
+            with row_cols[1]:
+                st.markdown("*List of items*")
+                if isinstance(extracted_value, list):
+                    for i, item in enumerate(extracted_value):
+                        st.markdown(f"**Item {i+1}**")
+                        if isinstance(item, (dict, list)):
+                            st.json(item)
+                        else:
+                            st.markdown(f"```{item}```")
+                        if i < len(extracted_value) - 1:
+                            st.markdown("---")
+                elif extracted_value is None:
+                    st.info("Not extracted.")
+                else:
+                    st.warning(
+                        f"Expected a list, but got: `{type(extracted_value).__name__}`"
+                    )
+                    st.json(extracted_value, expanded=True)
+
+            with row_cols[2]:
+                st.markdown("*List of items*")
+                if isinstance(expected_value, list):
+                    for i, item in enumerate(expected_value):
+                        st.markdown(f"**Item {i+1}**")
+                        if isinstance(item, (dict, list)):
+                            st.json(item)
+                        else:
+                            st.markdown(f"```{item}```")
+                        if i < len(expected_value) - 1:
+                            st.markdown("---")
+                elif expected_value is None:
+                    st.info("Not expected.")
+                else:
+                    st.warning(
+                        f"Expected a list, but got: `{type(expected_value).__name__}`"
+                    )
+                    st.json(expected_value, expanded=True)
+        else:
+            # Handle simple types
+            extracted_display = (
+                json.dumps(extracted_value, indent=2)
+                if isinstance(extracted_value, (dict))
+                else extracted_value
+            )
+            expected_display = (
+                json.dumps(expected_value, indent=2)
+                if isinstance(expected_value, (dict))
+                else expected_value
+            )
+
+            row_cols[1].markdown(
+                f"```\n{extracted_display}\n```"
+                if extracted_value is not None
+                else "N/A"
+            )
+            row_cols[2].markdown(
+                f"```\n{expected_display}\n```" if expected_value is not None else "N/A"
+            )
+
+        st.markdown("---")
+
+
+def display_results(extraction_results, expected_results, schema_fields):
     """Displays extraction results, comparing with expected results if available."""
-    if not extraction_results:
-        st.info("The extraction returned no results.")
+    if not extraction_results and not expected_results:
+        st.info("There are no results to display.")
         return
 
-    all_files = set(extraction_results.keys())
-    if expected_results:
-        all_files.update(expected_results.keys())
+    all_files = set(extraction_results.keys()) | set(
+        expected_results.keys() if expected_results else []
+    )
 
     for file_name in sorted(list(all_files)):
-        st.subheader(f"Results for: {file_name}")
+        with st.expander(f"Comparison for: {file_name}", expanded=True):
+            extracted = extraction_results.get(file_name, {})
+            expected = expected_results.get(file_name, {}) if expected_results else {}
 
-        extracted = extraction_results.get(file_name)
-        expected = expected_results.get(file_name) if expected_results else None
-
-        if expected:
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("#### Extracted Data")
-                if extracted:
-                    st.json(extracted)
-                else:
-                    st.warning("No extraction result for this file.")
-            with col2:
-                st.markdown("#### Expected Data")
-                st.json(expected)
-        else:
-            st.markdown("#### Extracted Data")
-            if extracted:
-                st.json(extracted)
+            if expected:
+                display_comparison_table(extracted, expected, schema_fields)
             else:
-                # This case should ideally not happen if we iterate over extracted keys
-                st.warning("No extraction result for this file.")
+                st.markdown("#### Extracted Data (no expected output for comparison)")
+                st.json(extracted)
+
+
+def save_run_results(run_folder_path: Path, config_path: Path, results: dict):
+    """Saves the extraction results and config to a new folder."""
+    try:
+        run_folder_path.mkdir(parents=True, exist_ok=True)
+        # Save the results
+        with open(
+            run_folder_path / "extraction_result.json", "w", encoding="utf-8"
+        ) as f:
+            json.dump(results, f, indent=2)
+        # Copy the config file
+        shutil.copy(config_path, run_folder_path / "config.json")
+        st.success(f"Run saved successfully to: `{run_folder_path}`")
+    except Exception as e:
+        st.error(f"Failed to save run: {e}")
 
 
 # --- Streamlit UI ---
@@ -152,10 +260,42 @@ if selected_dataset_name:
 
             st.success("Extraction finished!")
 
+            # Store results in session state to allow saving
+            st.session_state.latest_run_results = extraction_results
+            st.session_state.latest_run_dataset_path = selected_dataset_path
+            st.session_state.latest_run_config_path = config_path
+            st.session_state.run_saved = False  # Reset save state for new run
+
             # --- Display Results ---
             st.header("Extraction Results")
-            display_results(extraction_results, expected_results)
+            schema_fields = get_schema_fields(output_schema_path)
+            if not schema_fields:
+                st.warning("Could not load schema fields. Displaying raw JSON.")
+                st.json(extraction_results)
+            else:
+                display_results(extraction_results, expected_results, schema_fields)
 
         except Exception as e:
             st.error(f"An error occurred during extraction: {e}")
             st.exception(e)  # show traceback for debugging
+
+    # --- Save Run Section ---
+    if (
+        "latest_run_results" in st.session_state
+        and st.session_state.latest_run_results
+        and not st.session_state.get("run_saved", False)
+    ):
+        st.markdown("---")
+        if st.button("Save Current Run"):
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            run_folder_path = (
+                st.session_state.latest_run_dataset_path / "runs" / timestamp
+            )
+
+            save_run_results(
+                run_folder_path=run_folder_path,
+                config_path=st.session_state.latest_run_config_path,
+                results=st.session_state.latest_run_results,
+            )
+            st.session_state.run_saved = True
+            st.rerun()
