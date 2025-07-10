@@ -163,11 +163,21 @@ def save_schema(schema_file_path):
                 for p in prop_list
                 if p.get("prop_name")
             }
+            # Add required and additionalProperties to nested object
+            field_props["items"]["required"] = list(
+                field_props["items"]["properties"].keys()
+            )
+            field_props["items"]["additionalProperties"] = False
 
         new_schema_dict[field_name] = field_props
 
     if valid:
-        final_schema = {"type": "object", "properties": new_schema_dict}
+        final_schema = {
+            "type": "object",
+            "properties": new_schema_dict,
+            "required": list(new_schema_dict.keys()),
+            "additionalProperties": False,
+        }
         with open(schema_file_path, "w", encoding="utf-8") as f:
             json.dump(final_schema, f, indent=2)
         st.success("Schema saved successfully!")
