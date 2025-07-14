@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field, model_validator, ConfigDict
 from enum import Enum
 import os
+from typing import Any, Dict, Literal
+from datex.conversion.schemas import ConvertedFile
 
 
 class Provider(str, Enum):
@@ -31,3 +33,21 @@ class ExtractionConfig(BaseModel):
                     f"API Key must be set if provider none of: {none_key_provider}"
                 )
         return self
+
+
+class ExtractedFile(BaseModel):
+    file_path: str
+    data: Dict[str, Any] | None = None
+    error: str | None = None
+
+
+class ExtractionResult(BaseModel):
+    status: Literal["pending", "running", "failed", "success"]
+    duration: int
+    files: list[ExtractedFile]
+
+
+class ExtractionTask(BaseModel):
+    config: ExtractionConfig
+    output_schema: Dict[str, Any]
+    files: list[ConvertedFile]

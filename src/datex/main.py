@@ -2,10 +2,13 @@ from dotenv import load_dotenv
 from pathlib import Path
 import json
 from datex.extraction import run_extractions
-from datex.extraction.schemas import ExtractionConfig
+from datex.extraction.schemas import ExtractionConfig, ExtractionTask
 from datex.conversion import run_conversions
+from datex.conversion.schemas import ConversionTask
+from datex.conversion.strategies import ConversionStrategy
 import asyncio
 import argparse
+from datetime import datetime
 
 load_dotenv()
 
@@ -39,12 +42,23 @@ async def run_pipeline(
         expected_result = json.load(file)
 
     pdf_paths = prepare_dataset(path=dataset_path)
-    conversion_result = run_conversions(paths=pdf_paths)
-    extraction_results = await run_extractions(
-        output_schema_path=output_schema_path,
-        config=config,
-        conversion_result=conversion_result,
+    conversion_task = ConversionTask(
+        file_paths=pdf_paths,
+        strategy=ConversionStrategy.PDF2IMG,
+        requested_at=datetime.now(),
     )
+    conversion_result = run_conversions(conversion_task)
+
+    with open(output_schema_path, "r") as file:
+        output_schema = json.load(file)
+
+    extraction_task = ExtractionTask(
+        config=config,
+        output_schema=output_schema,
+        files=conversion_result.files,
+    )
+
+    extraction_results = await run_extractions(task=extraction_task)
 
     return (extraction_results, expected_result)
 

@@ -1,20 +1,24 @@
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
-import concurrent.futures
-from datex.conversion.image_per_page import convert
+from datex.conversion.schemas import ConversionTask, ConversionResult
+from datetime import datetime
 
 
-def run_conversions(paths: list[Path]) -> dict:
-    print("Converting...")
-    conversion_result = {}
-    with ThreadPoolExecutor() as executor:
-        conversion_tasks = {
-            executor.submit(convert, file_path): file_path.name for file_path in paths
-        }
-        for future in concurrent.futures.as_completed(conversion_tasks):
-            converted_file = conversion_tasks[future]
-            try:
-                conversion_result[converted_file] = future.result()
-            except Exception as exc:
-                print(f"{converted_file} caused an exception: {exc}")
-    return conversion_result
+def run_conversions(task: ConversionTask) -> ConversionResult:
+    """
+    Runs the conversion process based on the strategy defined in the task.
+
+    Args:
+        task: A ConversionTask object containing file paths and the conversion strategy.
+
+    Returns:
+        A ConversionResult object with the outcome of the conversion.
+    """
+    print(f"Converting files using strategy: {task.strategy.name}...")
+
+    # Instantiate the strategy class directly from the enum member
+    strategy_instance = task.strategy.strategy_class(task)
+
+    # Execute the conversion by calling the strategy instance
+    result = strategy_instance()
+
+    print("Conversion finished.")
+    return result

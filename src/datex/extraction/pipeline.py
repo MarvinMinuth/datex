@@ -1,57 +1,58 @@
-from pathlib import Path
-from datex.extraction.schemas import ExtractionConfig, Provider
+from datex.extraction.schemas import ExtractionTask, ExtractionResult, ExtractedFile
+from datex.extraction.strategies import ExtractionStrategy
 import json
-from datex.extraction.strategies import (
-    ExtractionStrategy,
-    OllamaStrategy,
-    OpenAIStrategy,
-)
 import asyncio
+from datetime import datetime
 
 
-EXTRACTION_STRATEGIES: dict[Provider, type[ExtractionStrategy]] = {
-    Provider.OLLAMA: OllamaStrategy,
-    Provider.OPENAI: OpenAIStrategy,
-}
+async def run_extractions(task: ExtractionTask) -> ExtractionResult:
+    """
+    Runs the extraction process based on the strategy and data defined in the task.
 
+    Args:
+        task: An ExtractionTask object containing the config, schema, and converted files.
 
-async def run_extractions(
-    output_schema_path: Path,
-    config: ExtractionConfig,
-    conversion_result: dict,
-) -> dict:
-    print("Extracting...")
-    with open(output_schema_path, "r") as file:
-        output_schema = json.load(file)
-
-    params = {
-        "config": config,
-        "output_schema": output_schema,
-    }
+    Returns:
+        An ExtractionResult object with the outcome of the extraction.
+    """
+    print(f"Extracting data using provider: {task.config.provider.value}...")
+    start_time = datetime.now()
 
     try:
-        extractor = EXTRACTION_STRATEGIES[config.provider](**params)
-    except KeyError:
-        raise ValueError(f"Provider {config.provider} not supported.")
+        strategy_enum = ExtractionStrategy(task.config.provider)
+        extractor = strategy_enum.strategy_class(
+            config=task.config, output_schema=task.output_schema
+        )
+    except ValueError:
+        raise ValueError(f"Provider {task.config.provider} not supported.")
 
-    extraction_tasks: dict[str, asyncio.Task] = {
-        file: asyncio.create_task(extractor(input_data=input_data))
-        for file, input_data in conversion_result.items()
-    }
-
-    await asyncio.gather(*extraction_tasks.values())
-    extraction_results = {}
-
-    for file, task in extraction_tasks.items():
+    async def extract_file(file_to_extract):
         try:
-            result = task.result()
-            extraction_results[file] = json.loads(result)
+            result_str = await extractor(input_data=file_to_extract.parts)
+            return ExtractedFile(
+                file_path=file_to_extract.file_path, data=json.loads(result_str)
+            )
         except json.JSONDecodeError as e:
-            error_message = f"Error decoding JSON for {file}: {e}"
-            print(error_message)
-            extraction_results[file] = {"error": error_message}
+            error_message = f"Error decoding JSON: {e}"
+            print(f"{file_to_extract.file_path}: {error_message}")
+            return ExtractedFile(
+                file_path=file_to_extract.file_path, error=error_message
+            )
         except Exception as e:
-            print(f"An error occurred during extraction for {file}: {e}")
-            extraction_results[file] = {"error": str(e)}
+            error_message = f"An error occurred during extraction: {e}"
+            print(f"{file_to_extract.file_path}: {error_message}")
+            return ExtractedFile(
+                file_path=file_to_extract.file_path, error=error_message
+            )
 
-    return extraction_results
+    extraction_coroutines = [extract_file(f) for f in task.files]
+    extracted_files = await asyncio.gather(*extraction_coroutines)
+
+    end_time = datetime.now()
+    duration = int((end_time - start_time).total_seconds())
+
+    return ExtractionResult(
+        status="success",
+        duration=duration,
+        files=extracted_files,
+    )
